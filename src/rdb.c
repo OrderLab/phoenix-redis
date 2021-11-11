@@ -1059,17 +1059,98 @@ werr:
     return C_ERR;
 }
 
+struct rdbSave_args {
+    char *filename;
+    int r;
+    rdbSaveInfo rdata;
+};
+
+unsigned long rdbSave_orbit(void *store, void *argbuf) {
+    (void)store;
+    int retval;
+    struct rdbSave_args *args = (struct rdbSave_args*)argbuf;
+
+    /* Child */
+    closeListeningSockets(0);
+    redisSetProcTitle("redis-rdb-bgsave");
+    retval = rdbSave(args->filename, args->r ? &args->rdata : NULL);
+    if (retval == C_OK) {
+        size_t private_dirty = zmalloc_get_private_dirty(-1);
+
+        if (private_dirty) {
+            serverLog(LL_NOTICE,
+                "RDB: %zu MB of memory used by copy-on-write",
+                private_dirty/(1024*1024));
+        }
+
+        server.child_info_data.cow_size = private_dirty;
+        sendChildInfo(CHILD_INFO_TYPE_RDB);
+    }
+    return retval;
+}
+
+static struct orbit_module *rdb_orbit;
+
+/* FIXME: we should have a no-hang version of recvv for polling */
+pthread_t rdb_wait_thread;
+pthread_mutex_t rdb_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t rdb_cond = PTHREAD_COND_INITIALIZER;
+
+/* FIXME: we should provide try_recvv just like wait WNOHANG */
+void *rdb_wait_loop(void *aux) {
+    (void)aux;
+    pthread_mutex_lock(&rdb_mutex);
+    while (true) {
+        struct orbit_task task;
+        union orbit_result result;
+
+        pthread_cond_wait(&rdb_cond, &rdb_mutex);
+        task = server.rdb_child_task;
+        pthread_mutex_unlock(&rdb_mutex);
+
+        int ret = orbit_recvv(&result, &task);
+        serverAssert(ret == 0);
+
+        pthread_mutex_lock(&rdb_mutex);
+
+        backgroundSaveDoneHandler((result.retval == C_OK) ? 0 : 1, 0);
+        if (result.retval == C_OK) receiveChildInfo();
+    }
+}
+
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
+    int ret;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
-    openChildInfoPipe();
+
+    static bool inited = false;
+    if (!inited) {
+        inited = true;
+        openChildInfoPipe();
+        rdb_orbit = orbit_create("rdb save", rdbSave_orbit, NULL);
+        pthread_create(&rdb_wait_thread, NULL, rdb_wait_loop, NULL);
+    }
 
     start = ustime();
+
+    struct rdbSave_args args;
+    args.filename = filename;
+    args.r = !!rsi;
+    if (rsi) args.rdata = *rsi;
+    struct orbit_pool *pools[] = { zmalloc_get_pool() };
+
+    ret = orbit_call_async(rdb_orbit, 0, 1, pools, NULL, &args, sizeof(args),
+                           &server.rdb_child_task);
+    serverAssert(ret == 0);
+
+    childpid = rdb_orbit->gobid;
+
+#if 0
     if ((childpid = fork()) == 0) {
         int retval;
 
@@ -1091,10 +1172,13 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
+#endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
+        fprintf(stderr, "RDBT: %lld us\n", server.stat_fork_time);
+        fprintf(stderr, "RDBM: %lu byte\n", pools[0]->data_length);
         if (childpid == -1) {
             closeChildInfoPipe();
             server.lastbgsave_status = C_ERR;
@@ -1103,13 +1187,19 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,"Background saving started by pid %d",childpid);
+        pthread_mutex_lock(&rdb_mutex);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_pid = childpid;
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
         updateDictResizePolicy();
+        pthread_mutex_unlock(&rdb_mutex);
+        pthread_cond_signal(&rdb_cond);
+        //pthread_mutex_unlock(&rdb_mutex);
         return C_OK;
+#if 0
     }
     return C_OK; /* unreached */
+#endif
 }
 
 void rdbRemoveTempFile(pid_t childpid) {

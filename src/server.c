@@ -1049,7 +1049,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         int statloc;
         pid_t pid;
 
-        if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+        extern pthread_mutex_t rdb_mutex;
+
+        pthread_mutex_lock(&rdb_mutex);
+
+        if (server.rdb_child_pid != -1) {
+            // this is handled by rdb_wait_loop
+        } else if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
             int exitcode = WEXITSTATUS(statloc);
             int bysignal = 0;
 
@@ -1077,6 +1083,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             updateDictResizePolicy();
             closeChildInfoPipe();
         }
+        pthread_mutex_unlock(&rdb_mutex);
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
@@ -3747,6 +3754,7 @@ int main(int argc, char **argv) {
 #endif
     setlocale(LC_COLLATE,"");
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
+    serverAssert(zmalloc_init_pool(orbit_pool_create_at(NULL, 2UL * 0x40000000UL, (void*)(0x820UL * 0x40000000UL))));
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     char hashseed[16];

@@ -31,11 +31,19 @@
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
+#include <stdio.h>
+
+#define USE_OBALLOC
+
 /* Double expansion needed for stringification of macro values. */
 #define __xstr(s) __str(s)
 #define __str(s) #s
 
-#if defined(USE_TCMALLOC)
+#if defined(USE_OBALLOC)
+#define ZMALLOC_LIB "orbit"
+#include "orbit.h"
+
+#elif defined(USE_TCMALLOC)
 #define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
 #include <google/tcmalloc.h>
 #if (TC_VERSION_MAJOR == 1 && TC_VERSION_MINOR >= 6) || (TC_VERSION_MAJOR > 1)
@@ -72,7 +80,13 @@
 #define HAVE_DEFRAG
 #endif
 
-void *zmalloc(size_t size);
+void *__zmalloc(size_t size);
+static inline void *zmalloc(size_t size, const char *file, int line) {
+	//fprintf(stderr, "Allocating at %s:%d\n", file, line);
+	(void)file; (void)line;
+	return __zmalloc(size);
+}
+#define zmalloc(size) zmalloc(size, __FILE__, __LINE__)
 void *zcalloc(size_t size);
 void *zrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
@@ -85,6 +99,11 @@ size_t zmalloc_get_private_dirty(long pid);
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
+
+#ifdef USE_OBALLOC
+bool zmalloc_init_pool(struct orbit_pool *pool);
+struct orbit_pool *zmalloc_get_pool(void);
+#endif
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);

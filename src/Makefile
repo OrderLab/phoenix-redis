@@ -20,7 +20,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c99 -pedantic -DREDIS_STATIC=''
+STD=-std=gnu99 -pedantic -DREDIS_STATIC=''
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
@@ -65,7 +65,7 @@ endif
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
-FINAL_LIBS=-lm
+FINAL_LIBS=-lm -lorbit
 DEBUG=-g -ggdb
 
 ifeq ($(uname_S),SunOS)

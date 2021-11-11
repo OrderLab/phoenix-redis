@@ -56,7 +56,53 @@ void zlibc_free(void *ptr) {
 #endif
 
 /* Explicitly override malloc/free etc when using tcmalloc. */
-#if defined(USE_TCMALLOC)
+#if defined(USE_OBALLOC)
+static struct orbit_pool *global_alloc_pool;
+static struct orbit_allocator *global_alloc;
+static inline void *__malloc(size_t size) {
+    if (global_alloc == NULL || is_orbit_context())
+        return malloc(size);
+    return orbit_alloc(global_alloc, size);
+}
+static inline void *__calloc(size_t count, size_t size) {
+    if (global_alloc == NULL || is_orbit_context())
+        return calloc(count, size);
+    return orbit_calloc(global_alloc, count * size);
+}
+#if 1
+#define is_from_pool(ptr, pool) \
+    ((pool) && (pool)->data_start <= (ptr) && \
+               (char*)(ptr) < (char*)(pool)->data_start + (pool)->data_length)
+#else
+#define is_from_pool(ptr, pool) true
+#endif
+static inline void *__realloc(void* ptr, size_t size) {
+    if (is_from_pool(ptr, global_alloc_pool)) {
+        if (is_orbit_context()) {
+            void *newptr = malloc(size);
+            if (!newptr) return NULL;
+            return memcpy(newptr, ptr, zmalloc_size(ptr));
+        } else {
+            return orbit_realloc(global_alloc, ptr, size);
+        }
+    } else {
+        return realloc(ptr, size);
+    }
+}
+static inline void __free(void *ptr) {
+    if (is_from_pool(ptr, global_alloc_pool)) {
+        if (!is_orbit_context())
+            orbit_free(global_alloc, ptr);
+        /* Otherwise, just leak it */
+    } else {
+        free(ptr);
+    }
+}
+#define malloc(size) __malloc(size)
+#define calloc(count,size) __calloc(count, size)
+#define realloc(ptr,size) __realloc(ptr, size)
+#define free(ptr) __free(ptr)
+#elif defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
 #define calloc(count,size) tc_calloc(count,size)
 #define realloc(ptr,size) tc_realloc(ptr,size)
@@ -70,6 +116,18 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
+bool zmalloc_init_pool(struct orbit_pool *pool) {
+    if (pool == NULL) return false;
+    global_alloc_pool = pool;
+    global_alloc = orbit_allocator_from_pool(pool, true);
+    return global_alloc != NULL;
+}
+
+struct orbit_pool *zmalloc_get_pool(void) {
+    return global_alloc_pool;
+}
+
+#ifndef USE_OBALLOC
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
@@ -84,6 +142,7 @@ void zlibc_free(void *ptr) {
 
 static size_t used_memory = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
@@ -94,11 +153,13 @@ static void zmalloc_default_oom(size_t size) {
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
-void *zmalloc(size_t size) {
+void *__zmalloc(size_t size) {
     void *ptr = malloc(size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom_handler(size);
-#ifdef HAVE_MALLOC_SIZE
+#ifdef USE_OBALLOC
+    return ptr;
+#elif defined(HAVE_MALLOC_SIZE)
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 #else
@@ -130,7 +191,9 @@ void *zcalloc(size_t size) {
     void *ptr = calloc(1, size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom_handler(size);
-#ifdef HAVE_MALLOC_SIZE
+#ifdef USE_OBALLOC
+    return ptr;
+#elif defined(HAVE_MALLOC_SIZE)
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 #else
@@ -141,14 +204,18 @@ void *zcalloc(size_t size) {
 }
 
 void *zrealloc(void *ptr, size_t size) {
+#if !defined(USE_OBALLOC)
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif
     size_t oldsize;
     void *newptr;
+#endif
 
     if (ptr == NULL) return zmalloc(size);
-#ifdef HAVE_MALLOC_SIZE
+#ifdef USE_OBALLOC
+    return realloc(ptr,size);
+#elif defined(HAVE_MALLOC_SIZE)
     oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (!newptr) zmalloc_oom_handler(size);
@@ -172,7 +239,7 @@ void *zrealloc(void *ptr, size_t size) {
 /* Provide zmalloc_size() for systems where this function is not provided by
  * malloc itself, given that in that case we store a header with this
  * information as the first bytes of every allocation. */
-#ifndef HAVE_MALLOC_SIZE
+#if !defined(USE_OBALLOC) && !defined(HAVE_MALLOC_SIZE)
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
@@ -181,16 +248,23 @@ size_t zmalloc_size(void *ptr) {
     if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
 }
+#elif defined(USE_OBALLOC)
+size_t zmalloc_size(void *ptr) {
+    /* FIXME: We should use some API provided by orbit */
+    return ((size_t*)ptr)[-1] * 32 - 8;
+}
 #endif
 
 void zfree(void *ptr) {
-#ifndef HAVE_MALLOC_SIZE
+#if !defined(USE_OBALLOC) && !defined(HAVE_MALLOC_SIZE)
     void *realptr;
     size_t oldsize;
 #endif
 
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+#ifdef USE_OBALLOC
+    free(ptr);
+#elif defined(HAVE_MALLOC_SIZE)
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
@@ -210,9 +284,14 @@ char *zstrdup(const char *s) {
 }
 
 size_t zmalloc_used_memory(void) {
+#ifdef USE_OBALLOC
+    /* FIXME: atomic? */
+    return global_alloc_pool->data_length;
+#else
     size_t um;
     atomicGet(used_memory,um);
     return um;
+#endif
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {

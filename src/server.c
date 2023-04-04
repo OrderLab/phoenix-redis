@@ -56,6 +56,8 @@
 #include <locale.h>
 #include <sys/socket.h>
 
+#include <phx.h>
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -1814,6 +1816,24 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+void phx_fault_handler(int sig) {
+    (void)sig;
+
+    fprintf(stderr, "PHX: Trying to continue running using the preserved data.\n");
+
+    struct orbit_pool *pool = zmalloc_get_pool();
+
+    fprintf(stderr, "before crash ustime %lld\n", ustime());
+
+    __phx_recovery_info->db = server.db;
+
+    fprintf(stderr, "Exec, see you in the new process.\n");
+    phx_restart(__phx_recovery_info, pool->rawptr, (char*)pool->data_start + pool->data_length);
+
+    fprintf(stderr, "exec failed with %s\n", strerror(errno));
+    abort();
+}
+
 void initServer(void) {
     int j;
 
@@ -1850,7 +1870,9 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = phx_is_recovery_mode()
+        ? __phx_recovery_info->db
+        : zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
@@ -1875,15 +1897,25 @@ void initServer(void) {
         exit(1);
     }
 
-    /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&keyptrDictType,NULL);
-        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
-        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].id = j;
-        server.db[j].avg_ttl = 0;
+    if (!phx_is_recovery_mode()) {
+        /* Create the Redis databases, and initialize other internal state. */
+        for (j = 0; j < server.dbnum; j++) {
+            server.db[j].dict = dictCreate(&dbDictType,NULL);
+            server.db[j].expires = dictCreate(&keyptrDictType,NULL);
+            server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
+            server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
+            server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+            server.db[j].id = j;
+            server.db[j].avg_ttl = 0;
+        }
+    } else {
+        for (j = 0; j < server.dbnum; j++) {
+            server.db[j].dict->type = &dbDictType;
+            server.db[j].expires->type = &keyptrDictType;
+            server.db[j].blocking_keys->type = &keylistDictType;
+            server.db[j].ready_keys->type = &objectKeyPointerValueDictType;
+            server.db[j].watched_keys->type = &keylistDictType;
+        }
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
@@ -1977,6 +2009,8 @@ void initServer(void) {
     latencyMonitorInit();
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
+
+    // phx_finish_recovery_mode();
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -3536,7 +3570,7 @@ void setupSignalHandlers(void) {
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
-    sigaction(SIGSEGV, &act, NULL);
+    // sigaction(SIGSEGV, &act, NULL);
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
@@ -3711,9 +3745,11 @@ int redisIsSupervised(int mode) {
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv, char **envp) {
     struct timeval tv;
     int j;
+
+    phx_init(argc, (const char**)argv, (const char**)envp, phx_fault_handler);
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -3747,12 +3783,20 @@ int main(int argc, char **argv) {
 #endif
     setlocale(LC_COLLATE,"");
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
-    serverAssert(zmalloc_init_pool(orbit_pool_create_at(NULL, 2UL * 0x40000000UL, (void*)(0x820UL * 0x40000000UL))));
+    if (phx_is_recovery_mode())
+        serverAssert(zmalloc_recover_pool());
+    else
+        serverAssert(zmalloc_init_pool(orbit_pool_create_at(NULL, 2UL * 0x40000000UL, (void*)(0x820UL * 0x40000000UL))));
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
-    char hashseed[16];
-    getRandomHexChars(hashseed,sizeof(hashseed));
-    dictSetHashFunctionSeed((uint8_t*)hashseed);
+
+    if (!phx_is_recovery_mode()) {
+        char *hashseed = __phx_recovery_info->hashseed = zmalloc(16);
+        getRandomHexChars(hashseed,16);
+        dictSetHashFunctionSeed((uint8_t*)hashseed);
+    } else {
+        dictSetHashFunctionSeed((uint8_t*)__phx_recovery_info->hashseed);
+    }
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
     moduleInitModulesSystem();
@@ -3902,6 +3946,7 @@ int main(int argc, char **argv) {
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
+    fprintf(stderr, "servicable time ustime %lld\n", ustime());
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

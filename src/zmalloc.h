@@ -103,6 +103,7 @@ void zlibc_free(void *ptr);
 #ifdef USE_OBALLOC
 bool zmalloc_init_pool(struct orbit_pool *pool);
 struct orbit_pool *zmalloc_get_pool(void);
+bool zmalloc_recover_pool(void);
 #endif
 
 #ifdef HAVE_DEFRAG

@@ -1007,6 +1007,8 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int error = 0;
 
+    return C_OK;
+
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1064,6 +1066,9 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     long long start;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
+
+    // don't
+    return C_OK;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
@@ -2025,6 +2030,17 @@ void bgsaveCommand(client *c) {
 
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
+
+    if (0) {
+        fprintf(stderr, "Making manual crash\n"); fflush(stderr);
+        int *x = NULL;
+        *x += 29;
+    }
+    if (1) {
+        fprintf(stderr, "Making manual restart\n"); fflush(stderr);
+        extern void phx_fault_handler(int sig);
+        phx_fault_handler(SIGSEGV);
+    }
 
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");

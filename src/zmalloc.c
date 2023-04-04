@@ -45,6 +45,8 @@ void zlibc_free(void *ptr) {
 #include "zmalloc.h"
 #include "atomicvar.h"
 
+#include "server.h"
+
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
@@ -57,6 +59,9 @@ void zlibc_free(void *ptr) {
 
 /* Explicitly override malloc/free etc when using tcmalloc. */
 #if defined(USE_OBALLOC)
+#include "bitmap_allocator.h"
+#include <assert.h>
+
 static struct orbit_pool *global_alloc_pool;
 static struct orbit_allocator *global_alloc;
 static inline void *__malloc(size_t size) {
@@ -116,10 +121,68 @@ static inline void __free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
+struct phx_recovery_info *__phx_recovery_info = NULL;
+
+/* Hack for linear allocator */
+#if 0
+struct linear {
+        struct orbit_allocator base;    /* Allocator base struct, includes vtable */
+        void *start;            /* Underlying memory region */
+        size_t length;
+        size_t *allocated;      /* External pointer to allocated size */
+}
+
 bool zmalloc_init_pool(struct orbit_pool *pool) {
     if (pool == NULL) return false;
-    global_alloc_pool = pool;
-    global_alloc = orbit_allocator_from_pool(pool, true);
+
+    struct orbit_allocator *alloc = orbit_allocator_from_pool(pool, true);
+    if (!alloc)
+        return false;
+
+    __phx_recovery_info = orbit_alloc(alloc, sizeof(*__phx_recovery_info));
+    __phx_recovery_info->pool = orbit_alloc(alloc, sizeof(*pool));
+    __phx_recovery_info->alloc = orbit_alloc(alloc, sizeof(*alloc) + 32);
+
+    memcpy(__phx_recovery_info->pool, pool, sizeof(*pool));
+    memcpy(__phx_recovery_info->alloc, alloc, sizeof(*alloc) + 32);
+
+    struct linear *linear = (struct linear *)__phx_recovery_info->alloc;
+    linear->allocated = &__phx_recovery_info->pool->data_length;
+
+    global_alloc_pool = __phx_recovery_info->pool;
+    global_alloc = __phx_recovery_info->alloc;
+
+    return true;
+}
+#endif
+
+bool zmalloc_init_pool(struct orbit_pool *pool) {
+    if (pool == NULL) return false;
+
+    struct orbit_allocator *alloc = orbit_allocator_from_pool(pool, true);
+    if (!alloc)
+        return false;
+    assert(pool->rawptr <= (void*)alloc && (char*)alloc < (char*)pool->rawptr + pool->length);
+
+    __phx_recovery_info = orbit_alloc(alloc, sizeof(*__phx_recovery_info));
+
+    /* Move pool to pool itself */
+    __phx_recovery_info->pool = orbit_alloc(alloc, sizeof(*pool));
+    memcpy(__phx_recovery_info->pool, pool, sizeof(*pool));
+    ((struct orbit_bitmap_allocator*)alloc)->data_length = &__phx_recovery_info->pool->data_length;
+
+    global_alloc_pool = __phx_recovery_info->pool;
+    global_alloc = __phx_recovery_info->alloc = alloc;
+
+    return true;
+}
+
+bool zmalloc_recover_pool() {
+    global_alloc_pool = __phx_recovery_info->pool;
+    global_alloc = __phx_recovery_info->alloc;
+    extern struct orbit_allocator_vtable orbit_bitmap_allocator_vtable;
+    __phx_recovery_info->alloc->vtable = &orbit_bitmap_allocator_vtable;
+    fprintf(stderr, "vtable address %p\n", __phx_recovery_info->alloc->vtable);
     return global_alloc != NULL;
 }
 

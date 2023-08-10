@@ -2031,4 +2031,12 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len);
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
+/* PHX */
+struct phx_recovery_info {
+    redisDb *db;
+    char *hashseed;
+};
+extern struct phx_recovery_info *__phx_recovery_info;
+void phx_fault_handler(int sig);
+
 #endif

@@ -3751,7 +3751,7 @@ int main(int argc, char **argv, char **envp) {
     int j;
 
     __phx_recovery_info = phx_init(argc, (const char **)argv, (const char **)envp, phx_fault_handler);
-
+    
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {

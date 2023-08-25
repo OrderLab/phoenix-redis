@@ -2012,6 +2012,8 @@ void initServer(void) {
     latencyMonitorInit();
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
+    
+    phx_finish_recovery();
 }
 
 /* Populates the Redis Command Table starting from the hard coded list

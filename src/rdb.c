@@ -1007,7 +1007,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int error = 0;
 
-    //return C_OK;
+return C_OK;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
@@ -1068,7 +1068,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     // don't 
-    //return C_OK;
+    return C_OK;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
@@ -1642,7 +1642,8 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             continue;
         }
         /* Add the new object in the hash table */
-        dbAdd(db,key,val);
+        fprintf(stderr, "db addr = %p, key = %u, val = %u\n", &db, key->encoding, val->encoding);
+	dbAdd(db,key,val);
 
         /* Set the expire time if needed */
         if (expiretime != -1) setExpire(NULL,db,key,expiretime);
@@ -2031,7 +2032,7 @@ void bgsaveCommand(client *c) {
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
-    /*if (0) {
+    if (0) {
         fprintf(stderr, "Making manual crash\n"); fflush(stderr);
         int *x = NULL;
         *x += 29;
@@ -2040,7 +2041,7 @@ void bgsaveCommand(client *c) {
         fprintf(stderr, "Making manual restart\n"); fflush(stderr);
         extern void phx_fault_handler(int sig);
         phx_fault_handler(SIGSEGV);
-    }*/
+    }
 
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");

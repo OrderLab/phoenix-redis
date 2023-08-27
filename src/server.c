@@ -1831,6 +1831,8 @@ void phx_fault_handler(int sig) {
 
     fprintf(stderr, "Exec, see you in the new process.\n");
 
+    __phx_recovery_info->t1 = clock();
+
     phx_restart_multi(__phx_recovery_info, NULL, NULL, 0);
 
     fprintf(stderr, "exec failed with %s\n", strerror(errno));
@@ -2013,7 +2015,7 @@ void initServer(void) {
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
     
-    phx_finish_recovery();
+    //phx_finish_recovery();
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -3754,6 +3756,12 @@ int main(int argc, char **argv, char **envp) {
 
     __phx_recovery_info = phx_init(argc, (const char **)argv, (const char **)envp, phx_fault_handler);
     
+    clock_t t2 = clock();
+    if (__phx_recovery_info != NULL) {
+        double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
+        printf("time result = %f\n", duration);
+    }
+
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {
@@ -3949,6 +3957,7 @@ int main(int argc, char **argv, char **envp) {
     aeSetAfterSleepProc(server.el,afterSleep);
 
     fprintf(stderr, "servicable time utime %lld\n", ustime());
+    phx_finish_recovery();
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

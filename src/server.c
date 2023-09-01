@@ -3604,7 +3604,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        if (phx_recovery_mode()) {
+        if (phx_is_recovery_mode()) {
             // skip RDB load in phx mode since we have preserved the DB
         } else if (rdbLoad(server.rdb_filename,&rsi) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
@@ -3761,7 +3761,12 @@ int main(int argc, char **argv, char **envp) {
     clock_t t2 = clock();
     if (__phx_recovery_info != NULL) {
         double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
-        printf("time result = %f\n", duration);
+        FILE *phx = fopen("phx.csv", "a+");
+	if(phx != NULL) {
+	    fprintf(phx, "%f\n", duration);
+	    fclose(phx);
+	}
+	printf("time result = %f\n", duration);
     }
 
 #ifdef REDIS_TEST

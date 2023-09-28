@@ -2032,12 +2032,12 @@ void bgsaveCommand(client *c) {
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
-    if (0) {
+    if (1) {
         fprintf(stderr, "Making manual crash\n"); fflush(stderr);
         int *x = NULL;
         *x += 29;
     }
-    if (1) {
+    if (0) {
         fprintf(stderr, "Making manual restart\n"); fflush(stderr);
         extern void phx_fault_handler(int sig);
         phx_fault_handler(SIGSEGV);

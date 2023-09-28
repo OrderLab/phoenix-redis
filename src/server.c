@@ -1832,6 +1832,7 @@ void phx_fault_handler(int sig) {
     fprintf(stderr, "Exec, see you in the new process.\n");
 
     __phx_recovery_info->t1 = clock();
+    fprintf(stderr, "Before restart, t1 = %lf\n", (double)__phx_recovery_info->t1);
 
     phx_restart_multi(__phx_recovery_info, NULL, NULL, 0);
 
@@ -3756,10 +3757,14 @@ int main(int argc, char **argv, char **envp) {
     struct timeval tv;
     int j;
 
+    clock_t t6 = clock();             
+    fprintf(stderr, "Before phx init, t6 = %lf\n", (double)t6);
+
     __phx_recovery_info = phx_init(argc, (const char **)argv, (const char **)envp, phx_fault_handler);
     
     clock_t t2 = clock();
     if (__phx_recovery_info != NULL) {
+	fprintf(stderr, "t2 = %lf\n", (double)t2);
         double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
         FILE *phx = fopen("phx.csv", "a+");
 	if(phx != NULL) {

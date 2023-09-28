@@ -4717,6 +4717,10 @@ void dumpCommand(client *c) {
     robj *o, *dumpobj;
     rio payload;
 
+    fprintf(stderr, "Make Manual restart\n");
+    extern void phx_fault_handler(int sig);
+    phx_fault_handler(SIGSEGV);
+
     /* Check if the key is here. */
     if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
         addReply(c,shared.nullbulk);

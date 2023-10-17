@@ -3774,6 +3774,25 @@ int main(int argc, char **argv, char **envp) {
 	printf("time result = %f\n", duration);
     }
 
+    int *victim = zmalloc(sizeof(int));                                     
+   if (__phx_recovery_info != NULL){ 
+	 int *test = (int *)(0x55555567ddb8);
+	 fprintf(stderr, "test %d\n", *test);
+	 // fprintf(stderr, "try to access past ptr %p\n", *__phx_recovery_info->vptr);
+         /*fprintf(stderr, "access past victim = %d\n", *(*__phx_recovery_info->vptr));
+         *victim = 25;     
+         *__phx_recovery_info->vptr = victim;*/                                  
+    }                                                                     
+     else{                                                                   
+         fprintf(stderr, "Before store\n");                               
+         *victim = 20;                                                     
+         fprintf(stderr, "store successfully, ptr = %p\n", victim);                         
+         __phx_recovery_info = zmalloc(sizeof(__phx_recovery_info));
+         __phx_recovery_info->vptr = zmalloc(sizeof(int*));
+	 *__phx_recovery_info->vptr = victim;               
+	 fprintf(stderr, "stored *vptr = %p\n", *__phx_recovery_info->vptr);
+    }
+
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {

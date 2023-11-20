@@ -3741,4 +3741,13 @@ int iAmMaster(void);
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
+/* PHX */
+struct phx_recovery_info {
+    redisDb *db;
+    char *hashseed;
+    clock_t t1;
+};
+extern struct phx_recovery_info *__phx_recovery_info;
+void phx_fault_handler(int sig);
+
 #endif

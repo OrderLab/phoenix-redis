@@ -61,6 +61,8 @@
 #include <locale.h>
 #include <sys/socket.h>
 
+#include <phx.h>
+
 #ifdef __linux__
 #include <sys/mman.h>
 #endif
@@ -2555,6 +2557,28 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+void phx_fault_handler(int sig) {
+    (void)sig;
+
+    fprintf(stderr, "PHX: Trying to continue running using the preserved data\n");
+
+    //fprintf(stderr, "before crash ustime %lld\n", ustime());
+
+    //fprintf(stderr, "phx recovery info addr = %p\n", __phx_recovery_info);
+    fprintf(stderr, "server db = %p\n", server.db);
+    __phx_recovery_info->db = server.db;
+
+    fprintf(stderr, "Exec, see you in the new process.\n");
+
+    __phx_recovery_info->t1 = clock();
+    fprintf(stderr, "Before restart, t1 = %lf\n", (double)__phx_recovery_info->t1);
+
+    phx_restart_multi(__phx_recovery_info, NULL, NULL, 0);
+
+    fprintf(stderr, "exec failed with %s\n", strerror(errno));
+    abort();
+}
+
 void initServer(void) {
     int j;
 
@@ -2626,22 +2650,26 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = phx_is_recovery_mode()
+        ? __phx_recovery_info->db
+        : zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType);
-        server.db[j].expires = dictCreate(&dbExpiresDictType);
-        server.db[j].expires_cursor = 0;
-        server.db[j].blocking_keys = dictCreate(&keylistDictType);
-        server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
-        server.db[j].watched_keys = dictCreate(&keylistDictType);
-        server.db[j].id = j;
-        server.db[j].avg_ttl = 0;
-        server.db[j].defrag_later = listCreate();
-        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
-        listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
+    if (!phx_is_recovery_mode()) {
+        for (j = 0; j < server.dbnum; j++) {
+            server.db[j].dict = dictCreate(&dbDictType);
+            server.db[j].expires = dictCreate(&dbExpiresDictType);
+            server.db[j].expires_cursor = 0;
+            server.db[j].blocking_keys = dictCreate(&keylistDictType);
+            server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
+            server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+            server.db[j].watched_keys = dictCreate(&keylistDictType);
+            server.db[j].id = j;
+            server.db[j].avg_ttl = 0;
+            server.db[j].defrag_later = listCreate();
+            server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
+            listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
+        }
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
@@ -6526,7 +6554,7 @@ void setupSignalHandlers(void) {
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
     if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
+        // sigaction(SIGSEGV, &act, NULL);
         sigaction(SIGBUS, &act, NULL);
         sigaction(SIGFPE, &act, NULL);
         sigaction(SIGILL, &act, NULL);
@@ -6777,8 +6805,10 @@ void loadDataFromDisk(void) {
             createReplicationBacklog();
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
-        int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
-        if (rdb_load_ret == RDB_OK) {
+        int rdb_load_ret;
+        if (phx_is_recovery_mode()) {
+            // skip RDB load in phx mode since we have preserved the DB
+        } else if ((rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags)) == RDB_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 
@@ -7031,10 +7061,32 @@ redisTestProc *getTestProcByName(const char *name) {
 }
 #endif
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv, char **envp) {
     struct timeval tv;
     int j;
     char config_from_stdin = 0;
+
+    clock_t t6 = clock();
+    fprintf(stderr, "Before phx init, t6 = %lf\n", (double)t6);
+
+    __phx_recovery_info = phx_init(argc, (const char **)argv, (const char **)envp, phx_fault_handler);
+
+    clock_t t2 = clock();
+    if (__phx_recovery_info != NULL) {
+        fprintf(stderr, "t2 = %lf\n", (double)t2);
+        double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
+        FILE *phx = fopen("phx.csv", "a+");
+        if(phx != NULL) {
+            fprintf(phx, "%f\n", duration);
+            fclose(phx);
+        }
+        printf("time result = %f\n", duration);
+    }
+
+    if (__phx_recovery_info == NULL){
+        fprintf(stderr, "Creating __phx_recovery_info\n");
+        __phx_recovery_info = zmalloc(sizeof(__phx_recovery_info));
+    }
 
 #ifdef REDIS_TEST
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
@@ -7098,9 +7150,13 @@ int main(int argc, char **argv) {
      */
     umask(server.umask = umask(0777));
 
-    uint8_t hashseed[16];
-    getRandomBytes(hashseed,sizeof(hashseed));
-    dictSetHashFunctionSeed(hashseed);
+    if (!phx_is_recovery_mode()) {
+        char *hashseed = __phx_recovery_info->hashseed = zmalloc(16);
+        getRandomBytes(hashseed,sizeof(hashseed));
+        dictSetHashFunctionSeed(hashseed);
+    } else {
+        dictSetHashFunctionSeed((uint8_t*)__phx_recovery_info->hashseed);
+    }
 
     char *exec_name = strrchr(argv[0], '/');
     if (exec_name == NULL) exec_name = argv[0];
@@ -7357,6 +7413,8 @@ int main(int argc, char **argv) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
+    fprintf(stderr, "servicable time utime %lld\n", ustime());
+    phx_finish_recovery();
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

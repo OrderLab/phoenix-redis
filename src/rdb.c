@@ -1525,6 +1525,9 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
         return C_ERR;
     }
     
+    // don't
+    return C_OK;
+
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -1560,6 +1563,10 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
+
+    // don't
+    return C_OK;
+
     server.stat_rdb_saves++;
 
     server.dirty_before_bgsave = server.dirty;

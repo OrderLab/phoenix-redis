@@ -1339,7 +1339,11 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 
 /* Validate that the entry doesn't reach outside the listpack allocation. */
 static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {
-    assert(lpValidateNext(lp, &p, lpbytes));
+    // assert(lpValidateNext(lp, &p, lpbytes));
+    if (lpValidateNext(lp, &p, lpbytes))
+        return;
+    int *x = NULL;
+    *x = 100;
 }
 
 /* Validate the integrity of the data structure.

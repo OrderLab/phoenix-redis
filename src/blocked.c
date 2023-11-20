@@ -569,8 +569,7 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
         /* Avoid processing more than the initial count so that we're not stuck
          * in an endless loop in case the reprocessing of the command blocks again. */
-        long count = listLength(clients);
-        while ((ln = listNext(&li)) && count--) {
+        while ((ln = listNext(&li))) {
             client *receiver = listNodeValue(ln);
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the

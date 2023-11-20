@@ -2593,7 +2593,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     }
 
     /* test if the expected number of keys would overflow */
-    if (setnum > (c->argc-(numkeysIndex+1))) {
+    // if (setnum > (c->argc-(numkeysIndex+1))) {
+    if (setnum+(numkeysIndex+1) > c->argc) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }

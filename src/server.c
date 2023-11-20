@@ -3784,6 +3784,11 @@ int commandCheckExistence(client *c, sds *err) {
         return 1;
     if (!err)
         return 0;
+    // phx
+    if (!strcasecmp(c->argv[0]->ptr, "get|")) {
+        addReplySubcommandSyntaxError(c);
+        return C_OK;
+    }
     if (isContainerCommandBySds(c->argv[0]->ptr)) {
         /* If we can't find the command but argv[0] by itself is a command
          * it means we're dealing with an invalid subcommand. Print Help. */
@@ -6862,8 +6867,15 @@ void loadDataFromDisk(void) {
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
+
+    // phx
+    fprintf(stderr, "Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
+        allocation_size);
+    raise(SIGSEGV);
+    /*
     serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
         allocation_size);
+    */
 }
 
 /* Callback for sdstemplate on proc-title-template. See redis.conf for

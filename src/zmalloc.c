@@ -74,6 +74,8 @@ void zlibc_free(void *ptr) {
 #define update_zmalloc_stat_alloc(__n) atomicIncr(used_memory,(__n))
 #define update_zmalloc_stat_free(__n) atomicDecr(used_memory,(__n))
 
+struct phx_recovery_info *__phx_recovery_info = NULL;
+
 static redisAtomic size_t used_memory = 0;
 
 static void zmalloc_default_oom(size_t size) {

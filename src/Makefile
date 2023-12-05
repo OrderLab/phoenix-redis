@@ -83,9 +83,10 @@ endif
 # Override default settings if possible
 -include .make-settings
 
+SYSROOT=/root/glibc/rel-merge
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
-FINAL_LIBS=-lm
+FINAL_LIBS=-lm -L ${SYSROOT}/lib -I ${SYSROOT}/include -I /root/phx/userlib/lib/include -Wl,--rpath=${SYSROOT}/lib -Wl,--dynamic-linker=${SYSROOT}/lib/ld-linux-x86-64.so.2 -lphx -lpthread
 DEBUG=-g -ggdb
 
 # Linux ARM needs -latomic at linking time

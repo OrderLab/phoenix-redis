@@ -1318,6 +1318,9 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int error = 0;
 
+    // don't
+    return C_OK;
+
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1383,6 +1386,9 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
+
+    // don't
+    return C_OK;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);

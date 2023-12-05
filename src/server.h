@@ -2595,4 +2595,13 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
 
 int iAmMaster(void);
 
+/* PHX */
+struct phx_recovery_info {
+    redisDb *db;
+    char *hashseed;
+    clock_t t1;
+};
+extern struct phx_recovery_info *__phx_recovery_info;
+void phx_fault_handler(int sig);
+
 #endif

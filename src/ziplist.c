@@ -189,6 +189,7 @@
 #include "ziplist.h"
 #include "endianconv.h"
 #include "redisassert.h"
+#include "phx_util.h"
 
 #define ZIP_END 255         /* Special "end of ziplist" entry. */
 #define ZIP_BIG_PREVLEN 254 /* ZIP_BIG_PREVLEN - 1 is the max number of bytes of
@@ -738,6 +739,7 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
              * had a 5 bytes prevlen header, so there is for sure at least
              * 5 bytes free and we need just 4. */
             p -= nextdiff;
+            __phx_recovery_info->unsafe = 1;
             zipStorePrevEntryLength(p,first.prevrawlen);
 
             /* Update offset for tail */
@@ -754,22 +756,17 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
             }
 
             /* Move tail to the front of the ziplist */
-            size_t memmove_size = intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1;
-            fprintf(stderr, "memmove_size = %lu\n", memmove_size);
-            long long t1 = ustime();
-            void *ret = memmove(first.p,p,
+            memmove(first.p,p,
                 intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)-1);
-            fprintf(stderr, "memmove spent %ld us, return %p.\n", ustime() - t1, ret);
         } else {
             /* The entire tail was deleted. No need to move memory. */
+            __phx_recovery_info->unsafe = 1;
             ZIPLIST_TAIL_OFFSET(zl) =
                 intrev32ifbe((first.p-zl)-first.prevrawlen);
         }
 
         /* Resize and update length */
         offset = first.p-zl;
-        unsigned int resized_len = intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff;
-        fprintf(stderr, "resized_len = %ld \n", resized_len);
         zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
         ZIPLIST_INCR_LENGTH(zl,-deleted);
         p = zl+offset;
@@ -1110,6 +1107,7 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
      * When the delete direction is back to front, we might delete the last
      * entry and end up with "p" pointing to ZIP_END, so check this. */
     *p = zl+offset;
+    __phx_recovery_info->unsafe = 0;
     return zl;
 }
 

@@ -2499,8 +2499,15 @@ void phx_fault_handler(int sig) {
 
     fprintf(stderr, "Exec, see you in the new process.\n");
 
-    __phx_recovery_info->t1 = clock();
-    fprintf(stderr, "Before restart, t1 = %lf\n", (double)__phx_recovery_info->t1);
+    __phx_recovery_info->t1 = ustime();
+    fprintf(stderr, "Before restart, t1 = %lld\n", __phx_recovery_info->t1);
+
+    // if (__builtin_expect(__phx_recovery_info->unsafe == 1, 0)) {
+    //     long long t2 = ustime();
+    //     fprintf(stderr, "t2 = %lld, t2 - t1 = %lld\n", t2, t2 - __phx_recovery_info->t1);
+    //     fprintf(stderr, "Unsafe recovery, exiting\n");
+    //     exit(0);
+    // }
 
     phx_restart_multi(__phx_recovery_info, NULL, NULL, 0);
 
@@ -5402,11 +5409,17 @@ int main(int argc, char **argv, char **envp) {
     char config_from_stdin = 0;
 
     __phx_recovery_info = phx_init(argc, (const char **)argv, (const char **)envp, phx_fault_handler);
+    if (__builtin_expect(__phx_recovery_info && __phx_recovery_info->unsafe == 1, 0)) {
+        long long t2 = ustime();
+        fprintf(stderr, "t2 = %lld, t2 - t1 = %lld\n", t2, t2 - __phx_recovery_info->t1);
+        fprintf(stderr, "Unsafe recovery, exiting\n");
+        exit(0);
+    }
 
-    clock_t t2 = clock();
+    // clock_t t2 = clock();
     if (__phx_recovery_info != NULL) {
-        fprintf(stderr, "t2 = %lf\n", (double)t2);
-        double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
+        // fprintf(stderr, "t2 = %lf\n", (double)t2);
+        // double duration = ((double)(t2 - __phx_recovery_info->t1)) / CLOCKS_PER_SEC;
         /* FILE *phx = fopen("phx.csv", "a+");
         if(phx != NULL) {
             fprintf(phx, "%f\n", duration);
@@ -5417,7 +5430,7 @@ int main(int argc, char **argv, char **envp) {
 
     if (__phx_recovery_info == NULL){
         fprintf(stderr, "Creating __phx_recovery_info\n");
-        __phx_recovery_info = zmalloc(sizeof(__phx_recovery_info));
+        __phx_recovery_info = zmalloc(sizeof(struct phx_recovery_info));
     }
 
 #ifdef REDIS_TEST
@@ -5635,7 +5648,8 @@ int main(int argc, char **argv, char **envp) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
-    fprintf(stderr, "servicable time utime %lld\n", ustime());
+    long long t3 = ustime();
+    fprintf(stderr, "t3 = %lld\n", t3);
     phx_finish_recovery();
     aeMain(server.el);
     aeDeleteEventLoop(server.el);

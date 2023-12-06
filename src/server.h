@@ -74,6 +74,7 @@ typedef long long ustime_t; /* microsecond time type. */
                            N-elements flat arrays */
 #include "rax.h"     /* Radix tree */
 #include "connection.h" /* Connection abstraction */
+#include "phx_util.h"
 
 #define REDISMODULE_CORE 1
 #include "redismodule.h"    /* Redis modules API defines. */
@@ -2594,14 +2595,5 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
 int iAmMaster(void);
-
-/* PHX */
-struct phx_recovery_info {
-    redisDb *db;
-    char *hashseed;
-    clock_t t1;
-};
-extern struct phx_recovery_info *__phx_recovery_info;
-void phx_fault_handler(int sig);
 
 #endif

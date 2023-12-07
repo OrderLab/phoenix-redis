@@ -5647,10 +5647,10 @@ int main(int argc, char **argv, char **envp) {
 
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
+    phx_finish_recovery();
 
     long long t3 = ustime();
     fprintf(stderr, "t3 = %lld\n", t3);
-    phx_finish_recovery();
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

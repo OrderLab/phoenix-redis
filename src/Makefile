@@ -20,7 +20,9 @@ DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
 NODEPS:=clean distclean
 
 # Default settings
-STD=-pedantic -DREDIS_STATIC=''
+STD=-DREDIS_STATIC=''
+# non system copy of sysroot will result in lots of warnings..
+# STD=-pedantic -DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
@@ -83,10 +85,11 @@ endif
 # Override default settings if possible
 -include .make-settings
 
-SYSROOT=/users/yzjing/phoenix-glibc/build/install
+SYSROOT=$(HOME)/sysroot
+CFLAGS+=-I$(SYSROOT)/include
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
-FINAL_LIBS=-lm -L ${SYSROOT}/lib -I ${SYSROOT}/include -I /users/yzjing/phoenix-userlib/lib/include -Wl,--rpath=${SYSROOT}/lib -Wl,--dynamic-linker=${SYSROOT}/lib/ld-linux-x86-64.so.2 -lphx -lpthread
+FINAL_LIBS=-lm -L ${SYSROOT}/lib -Wl,--rpath=${SYSROOT}/lib -Wl,--dynamic-linker=${SYSROOT}/lib/ld-linux-x86-64.so.2 -lphx -lpthread
 DEBUG=-g -ggdb
 
 # Linux ARM needs -latomic at linking time

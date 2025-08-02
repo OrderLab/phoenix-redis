@@ -17,19 +17,21 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 OPTIMIZATION?=-O3
-ifeq ($(OPTIMIZATION),-O3)
-	ifeq (clang,$(CLANG))
-		REDIS_CFLAGS+=-flto
-	else
-		REDIS_CFLAGS+=-flto=auto
-	endif
-	REDIS_LDFLAGS+=-O3 -flto
-endif
+# ifeq ($(OPTIMIZATION),-O3)
+# 	ifeq (clang,$(CLANG))
+# 		REDIS_CFLAGS+=-flto
+# 	else
+# 		REDIS_CFLAGS+=-flto=auto
+# 	endif
+# 	REDIS_LDFLAGS+=-O3 -flto
+# endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
 
 # Default settings
-STD=-pedantic -DREDIS_STATIC=''
+STD=-DREDIS_STATIC=''
+# non system copy of sysroot generates a lot of warnings
+# STD=-pedantic -DREDIS_STATIC=''
 
 # Use -Wno-c11-extensions on clang, either where explicitly used or on
 # platforms we can assume it's being used.
@@ -116,10 +118,11 @@ endif
 # Override default settings if possible
 -include .make-settings
 
-SYSROOT=/root/glibc/rel-merge
+SYSROOT=$(HOME)/sysroot
+CFLAGS+=-I$(SYSROOT)/include
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
-FINAL_LIBS=-lm -L ${SYSROOT}/lib -I ${SYSROOT}/include -I /root/phx/userlib/lib/include -Wl,--rpath=${SYSROOT}/lib -Wl,--dynamic-linker=${SYSROOT}/lib/ld-linux-x86-64.so.2 -lphx -lpthread
+FINAL_LIBS=-lm -L ${SYSROOT}/lib -Wl,--rpath=${SYSROOT}/lib -Wl,--dynamic-linker=${SYSROOT}/lib/ld-linux-x86-64.so.2 -lphx -lpthread
 DEBUG=-g -ggdb
 
 # Linux ARM32 needs -latomic at linking time
